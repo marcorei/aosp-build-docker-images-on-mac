@@ -1,0 +1,6 @@
+# Place any git configuration you want included in the docker image
+# in this file, then rename it to "gitconfig". E.g.:
+
+[user]
+	name = Max Mustermann
+	email = max@example.com

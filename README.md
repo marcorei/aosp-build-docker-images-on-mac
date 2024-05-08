@@ -1,47 +1,25 @@
 # aosp-build-docker-images
 
-These are updated versions of the [AOSP Docker files](https://cs.android.com/android/platform/superproject/+/master:build/make/tools/docker/)
-which support more modern Linux distribution versions. There's a lot of repetition between them because the 
-differences are mainly in the base image and package installation phases.
+This image is based on https://github.com/alsutton/aosp-build-docker-images with the required changes to build on Apple's M1 hardware.
 
-**Please Note:** Building the AOSP inside docker is convenient, but slow. If possible you should use a bare metal
-installation of a Linux distribution to get the best performance.
+It also enables you to easily add your Github tokens. This allows you to access private sources you might need for building your version of AOSP.
 
-## Building the images
+## Config
+
+(1) Add git config to file `gitconfig`. You can find an example in `gitconfig.example`.
+
+(2) Add ssh token files to `ssh/`, named `github-docker` and `github-docker.pub`.
+To create a new one, check out [Github's guide for that](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux).
+
+## Building the image
 
 You can build the docker images using the standard docker build command;
 
 ```shell
-docker build -f {docker_build_file} -t {your_image_tag} .
+docker build -f ubuntu-20_04-aosp.dockerfile -t ubuntu-aosp .
 ```
 
-where `docker_build_file` is the file you want to use to create your build environment,
-and `your_image_tag` is a tag you want to give to the final image so it's easy to
-remember.
-
-## Running the images
-
-There's a quick and dirty way to do this, and a longer, but more sustainable way; If 
-you're testing to see how things work you can use the quick and dirty way to get a 
-feel for things, but, if you're planning to do anything more than a quick test, I'd 
-advise you to  invest in the more sustainable route.
-
-### Quick and Dirty; Purely inside the docker container
-
-This way is useful if you want to to quickly get started to see how things
-work. The problem is you can lose your AOSP checkout and builds very easily 
-(e.g. if the docker image gets updated), and each time you lose your checkout
-you'll need to download the source again in each one, which can be **very** 
-slow.
-
-To start a docker container with the build image you created above you should
-run the following command;
-
-```shell
-docker run -i -t {your_image_tag}
-```
-
-### The sustainable way; Docker Volumes
+## Running the image
 
 Docker allows you to use volumes to separate data files from your main image. This
 allows you to rebuild your docker image, or even change the entire distribution 
@@ -57,28 +35,21 @@ then, when you run the image you create above, you'll need to tell docker to mou
 the image in a known location. In this example I'll use `/aosp`;
 
 ```shell
-docker run -i -t --mount source=aosp-build,target=/aosp {your_image_tag}
+docker run -i -t --mount source=aosp-build,target=/aosp ubuntu-aosp
 ```
 
 Once the container is running you should do all your work (checkout, build, etc.) in
 `/aosp`. If you do anything outside of `/aosp` you risk losing if your docker container
 is destroyed, or the image is updated.
 
-## Improving performance on Linux
+## Docker Desktop settings
 
-**WARNING:** This uses your RAM for temporary storage instead of using the disk, if you
-don't have enough RAM to support this you'll see strange errors (e.g. unsatisfied link errors,
-out of memory errors). If you see this when using this tweak try building without it, or reduce
-the number of parallel builds running (i.e. reduce the `-j` value).
-
-
-If you're using these images on Linux you can make use of [tmpfs](https://www.kernel.org/doc/html/latest/filesystems/tmpfs.html) 
-to improve the build performance by adding `--mount type=tmpfs,destination=/tmp` into your docker run command line.
-For the sustanable approach this would give you the following command line;
-
-```shell
-docker run -i -t --mount source=aosp-build,target=/aosp --mount type=tmpfs,destination=/tmp {your_image_tag}
-```
+Make sure to allocate enough resource for Docker. I chose to go with the following settings on 
+an Apple M1 Max (allocated / max):
+- CPU: 8 / 10
+- Memory Limit: 40GB / 64GB
+- Swap: 2GB / 4GB
+- Virtual Disk Limit: 1TB / 4TB
 
 ## Checkout and Build
 
@@ -87,8 +58,32 @@ For instructions on how to check-out and build the AOSP please see the
 [build](https://source.android.com/setup/build/building) sections of
 the AOSP documentation from Google.
 
-## Supporting other Linux distributions
+**Important**: Due to an issue with Kernel 6.x (and Docker using your system's Kernel)
+you can't use dex2oat. So in `build/core/board_config.mk` you'll have to set
+`WITH_DEXPREOPT` to false before building.
 
-If you have a Dockerfile for another recent distribution please feel free to
-create a pull request. I only use Debian these days, so my ability to create 
-other images from scratch is limited.
+## Extracting and running the emulator
+
+Build a zip to download
+
+```shell
+m emu_img_zip
+```
+
+Get your container id
+
+```shell
+docker ps
+```
+
+Download the zip from docker
+
+```shell
+docker cp [container id]:/aosp/[path to the zip] [Local path]
+```
+
+Extract the emulator into `~/Library/Android/sdk/system-images/android-[some number]/[image name]/arm64-v8a`.
+Then create a package.xml, e.g. by copying and modifying it from a similar image.
+
+After that you should be able to see it when creating a new AVD in Android Studio
+

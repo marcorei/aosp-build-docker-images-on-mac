@@ -1,5 +1,6 @@
 # Originally from: https://android-review.googlesource.com/c/platform/build/+/1161367
-FROM ubuntu:20.04
+# Build on amd64 via Rosetta because gcc-multilib is not available for arm64
+FROM --platform=linux/amd64 ubuntu:20.04
 ARG userid=1000
 ARG groupid=1000
 ARG username=aosp
@@ -20,6 +21,10 @@ RUN DEBIAN_FRONTEND="noninteractive" apt-get install -y git-core gnupg flex biso
 	x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip \
 	fontconfig libncurses5 procps rsync
 
+# Install Python (required for repo)
+RUN DEBIAN_FRONTEND="noninteractive" apt-get -y install python3
+
+
 # Disable some gpg options which can cause problems in IPv4 only environments
 RUN mkdir ~/.gnupg && chmod 600 ~/.gnupg && echo "disable-ipv6" >> ~/.gnupg/dirmngr.conf
 
@@ -32,11 +37,29 @@ RUN chmod a+x /usr/local/bin/repo
 # Create the home directory for the build user
 RUN groupadd -g $groupid $username \
  && useradd -m -s /bin/bash -u $userid -g $groupid $username
-COPY gitconfig /home/$username/.gitconfig
+COPY ./gitconfig /home/$username/.gitconfig
 RUN chown $userid:$groupid /home/$username/.gitconfig
+
+# Copy the entrypoint script and ssh tokens
+COPY entrypoint.sh /run/entrypoint.sh
+RUN chown $userid:$groupid /run/entrypoint.sh && chmod +x /run/entrypoint.sh
+ADD ssh /home/$username/.ssh
+RUN chown -R $userid:$groupid /home/$username/.ssh
+
 
 # Create a directory which we can use to build the AOSP
 RUN mkdir /aosp && chown $userid:$groupid /aosp && chmod ug+s /aosp
 
+# [Optional] Install Github commandline tool
+RUN (type -p wget >/dev/null || (apt update && apt-get install wget -y)) \
+	&& mkdir -p -m 755 /etc/apt/keyrings \
+	&& wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+	&& chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+	&& echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+	&& apt update \
+	&& apt install gh -y
+
 WORKDIR /home/$username
 USER $username
+
+ENTRYPOINT [ "/run/entrypoint.sh" ] && /bin/bash
